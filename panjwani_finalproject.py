@@ -427,7 +427,6 @@ create_albums = '''
         "Title"    TEXT NOT NULL,
         "Artist"    TEXT NOT NULL,
         "NumberTracks"    INTEGER NOT NULL,
-        "Popularity"    INTEGER NOT NULL,
         "URI"    INTEGER NOT NULL,
         "Pitchfork"    TEXT NOT NULL
     );
@@ -489,7 +488,9 @@ if __name__ == "__main__":
 
                 while True: #new loop to explore an album
                     #ask them if they want to explore one of the listed albums
-                    userinput = input("Enter a number if you'd like to explore one of the above album's songs. Or type 'exit', or 'back' to do another search:").lower()
+                    print_album_list(albums_to_print) #print them again for user reference
+                    print("------------------------------------------------- \n")
+                    userinput = input("Enter a number if you'd like to explore one of the album's songs. Or type 'exit', or 'back' to do another search:").lower()
 
                     if userinput == "exit":#exit the program
                         break
