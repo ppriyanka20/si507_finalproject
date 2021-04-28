@@ -22,7 +22,8 @@ Spotipy, which is a package created for accessing data from the Spotify API, has
 You need to create a Spotify developer account, and then access your client ID and client secret key in order to run the program. Save these two variables as CLIENT_ID and CLIENT_SECRET in a secrets.py file. Keep this file in the same folder as the code you are running.   
   
 ## Instructions for interacting with the program:  
-
+This program is done entirely from the command line. You can expect, based on the choices you make, for bar graphs to open up in a webbrowser, as well as one instance of a web page opening up (the Pitchfork Top 200 Albums of the 2010's page) if you opt into this choice. Other than that, all information is displayed in the command line.  
+  
 The flow of the program goes like this:   
   
 1.	User is prompted to enter one of their favorite artists names to explore their music further  
