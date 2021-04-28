@@ -3,6 +3,9 @@
 ##### Uniqname: ppanj               #####
 #########################################
 
+#########################################
+#############  IMPORTS ##################
+#########################################
 from requests_oauthlib import OAuth1
 import requests
 import json
@@ -16,9 +19,11 @@ from urllib.request import Request, urlopen
 import sqlite3
 import plotly.graph_objs as go
 
-#cache file set up
+###cache file set up###
 CACHE_FILE = "music_data.json"
 CACHE_DICT = {}
+ARTIST_URI_CACHE = "artist_uri.json"
+ARTIST_URI_DICT = {}
 
 #get the client id and client secret key
 cid = secrets.CLIENT_ID
@@ -27,17 +32,16 @@ secret = secrets.CLIENT_SECRET
 #############################
 #### GETTING SPOTIFY DATA ###
 #############################
-
-def get_artist_recommendations(userinput):
-    '''Calls spotify artists API and returns recommended artists, based on search term
+def get_artist_uri(userinput):
+    '''retrieves the artist uri, based on user input
     Parameters
     -----------
-    search_terms: str
+    userinput: str
         the string representation of the artist to be searched
     Returns
     --------
-    dict
-        dictionary containing each recommended artist and their popularity
+    str
+        the artist uri
     '''
     #get spotify credentials
     client_credentials_manager = SpotifyClientCredentials(client_id=cid, client_secret=secret)
@@ -48,35 +52,43 @@ def get_artist_recommendations(userinput):
 
     #get the artists uri for later reference
     artist_uri = results['artists']['items'][0]['uri']
-    artist_popularity = results['artists']['items'][0]['popularity']
-    recommended = sp.artist_related_artists(artist_uri)['artists']
-    recommended_artists ={}
-    for artist in recommended:
-        key = artist['name']
-        value = artist['popularity']
-        recommended_artists[key] = value
-    return recommended_artists
+    return artist_uri
 
-def print_recommended_artists(artist_dict):
-    '''prints the recommended artists out nicely
+def get_artist_recommendations(userinput):
+    '''Calls spotify artists API and displays bar chart of recommended
+    artists and their popularity, based on what the userinput is
     Parameters
     -----------
-    artist_dict: dict
-        the artists to print out with their uri
+    userinput: str
+        the string representation of the artist to be searched
     Returns
     --------
     None
     '''
-    print("Here are your recommended artists!")
-    for key,value in artist_dict.items():
-        print(f"{key}, who's popularity is {value}")
+    #get spotify credentials
+    client_credentials_manager = SpotifyClientCredentials(client_id=cid, client_secret=secret)
+    sp = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
+
+    # #get the artists uri for later reference by caching
+    artist_uri = make_uri_request_with_cache(userinput)
+
+    #get recommended artists
+    recommended = sp.artist_related_artists(artist_uri)['artists'] 
+    names = []
+    popularity =[]
+    #add elements to list, names and popularity, as x and y vectors for graph
+    for artist in recommended:
+        names.append(artist['name'])
+        popularity.append(artist['popularity'])
+    #graph related artists and their popularities
+    plotly_recommended_artists(names, popularity)
 
 def get_album_uris_spotify(userinput):
     '''Calls spotify artists API and returns information on selected artist.
     Parses data and returns only relevant data for this application.
     Parameters
     -----------
-    search_terms: str
+    userinput: str
         the string representation of the artist to be searched
     Returns
     --------
@@ -88,11 +100,8 @@ def get_album_uris_spotify(userinput):
     client_credentials_manager = SpotifyClientCredentials(client_id=cid, client_secret=secret)
     sp = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
 
-    #do the API search for the artist using spotify package
-    results = sp.search(q='artist:' + userinput, type='artist')
-
-    #get the artists uri for later reference
-    artist_uri = results['artists']['items'][0]['uri']
+    # #get the artists uri for later reference
+    artist_uri = make_uri_request_with_cache(userinput)
 
     #now, use that uri to figure out the artists albums
     albums = sp.artist_albums(artist_uri, album_type='album')
@@ -110,7 +119,6 @@ def get_album_uris_spotify(userinput):
             album_identifiers[album_name] = uri #add to the song count dictionary
 
     del album_identifiers['']
-
     return album_identifiers
 
 def print_album_list(album_list):
@@ -123,8 +131,10 @@ def print_album_list(album_list):
     --------
     None
     '''
+    #get each album name
     keys = album_list.keys()
     num = 1
+    #print each one out nicely in a numbered list
     for album in keys:
         print(f"{num}: {album}")
         num +=1
@@ -134,7 +144,7 @@ def get_album_songs(album):
     Parses data and returns only relevant data for this application.
     Parameters
     -----------
-    search_terms: str
+    album: str
         the album's uri to be searched
     Returns
     --------
@@ -152,27 +162,30 @@ def get_album_songs(album):
     return album_songs
 
 def explore_album_songs(album_songs):
-    '''parses list and returns a nicely formatted version of all songs in an album
+    '''parses list and returns a nicely formatted version of all songs in an album.
+    Also creates a bar chart of the album songs and their lengths
     Parameters
     -----------
     album_songs
-        the album's songs to print out
+        the album's songs to print out and graph
     Returns
     --------
-    list
-        list containing each song in the album searched through
+    none
     '''
+    #empty lists as x and y vectors for later graphing
     names = []
     durations = []
     num = 1
+    #add info to the lists
     for song in album_songs:
         names.append(song['name'])
         durations.append(int(song['duration_ms']))
+    #print out the songs in a nicely numbered list
     print("Here are all the songs in the album you chose to explore: \n")
     for name in names:
         print(f"{num}: {name}")
         num +=1
-    
+    #graph the songs and their duration, display the graph
     show_bar_chart(names, durations)
 
 ########################################
@@ -184,16 +197,15 @@ ALBUM_URL = 'https://pitchfork.com/features/lists-and-guides/the-200-best-albums
 def get_pitchfork_data():
     '''Scrapes through the pitchfork list: best albums of the 2010s
     -----------
-
     Returns
     --------
     list
         list containing each element on the top 200 list. each element is the artist, album name, and year
     '''
-    #response = requests.get(BASE_URL)
+    #initial request for the data
     req = Request(ALBUM_URL, headers={'User-Agent': 'Mozilla/5.0'})
     webpage = urlopen(req).read()
-    #html = response.text
+    #scrape the webpage
     soup = BeautifulSoup(webpage, 'html.parser')
     rankings = soup.find_all('h2')
 
@@ -205,6 +217,18 @@ def get_pitchfork_data():
     return pitchfork_ranked_albums
 
 def search_artist_in_pitchfork(userinput, pitchfork_albums):
+    '''looks through the pitchfork top 200 albums, to see if the userinput matches
+    any of the artists of those albums
+    Parameters
+    -----------
+    pitchfork_albums
+        the albums on the top 200 list
+    userinput
+        the artist we are looking for on the list
+    Returns
+    --------
+    None
+    '''
     is_ranked = ""
     ranked_album = ""
     for ranking in pitchfork_albums:
@@ -214,38 +238,67 @@ def search_artist_in_pitchfork(userinput, pitchfork_albums):
     if is_ranked == "yes":
         print(f"You have good music taste! {ranked_album} is one of pitchfork's top albums of the 2010's.\n")
     else:
-        print(f"Sorry your music taste isn't that interesting. Pitchfork did not rank {userinput}.\n")
+        print(f"Sorry your music taste isn't that amazing. Pitchfork did not rank {userinput}.\n")
 
 ###############################
 ########## Plotly #############
 ###############################
 
 def show_bar_chart(x_values, y_values):
-
+    '''displays and creates a bar chart for album songs and their 
+    lengths in milliseconds
+    Parameters
+    -----------
+    x_values
+        the album's songs 
+    y_values
+        the song lengths in milliseconds
+    Returns
+    --------
+    none
+    '''
     bar_data = go.Bar(x=x_values, y=y_values)
-    basic_layout = go.Layout(title = "Album songs and their lengths")
+    basic_layout = go.Layout(title = "Album songs and their lengths(milliseconds)")
     fig = go.Figure(data=bar_data, layout=basic_layout)
 
     fig.write_html("song_bar_chart.html", auto_open=True)
 
+def plotly_recommended_artists(x_values, y_values):
+    '''displays and creates a bar chart for recommended artists
+    and their popularity based on Spotify
+    Parameters
+    -----------
+    x_values
+        the artists
+    y_values
+        the popularities of the artists
+    Returns
+    --------
+    none
+    '''
+    bar_data = go.Bar(x=x_values, y=y_values)
+    basic_layout = go.Layout(title = "Recommended artists and their popularity (0-100)")
+    fig = go.Figure(data=bar_data, layout=basic_layout)
+
+    fig.write_html("artists_bar_chart.html", auto_open=True)
 
 ###############################
 #### Setting up Caching #######
 ###############################
 
-def load_cache():
+def load_cache(cache_file):
     ''' opens the cache file if it exists and loads the JSON into
     a dictionary, which it then returns.
     if the cache file doesn't exist, creates a new cache dictionary
     Parameters
     ----------
-    None
-    Returns
+    cache_file
+        the cache file to load
     -------
     The opened cache
     '''
     try:
-        cache_file = open(CACHE_FILE, 'r')
+        cache_file = open(cache_file, 'r')
         contents = cache_file.read()
         cache_dict = json.loads(contents)
         cache_file.close()
@@ -253,20 +306,43 @@ def load_cache():
         cache_dict = {}
     return cache_dict
 
-def save_cache(cache_dict):
+def save_cache(cache_dict, cache_file):
     ''' saves the current state of the cache to disk
     Parameters
     ----------
     cache_dict: dict
         The dictionary to save
+    cache_file
+        the cache_file to save to
     Returns
     -------
     None
     '''
-    cache_file = open(CACHE_FILE, 'w')
+    cache_file = open(cache_file, 'w')
     cache_file.write(json.dumps(cache_dict))
     cache_file.close()
 
+def make_uri_request_with_cache(userinput):
+    ''' makes artist uri request
+    If cache doesn't exist, makes request and adds to cache file
+    Parameters
+    ----------
+    userinput: string
+        The artist uri to make a request about
+    Returns
+    -------
+    dict
+        a dictionary of the artist name keys and 
+        uri for that artist as value
+    '''
+    if userinput in ARTIST_URI_DICT.keys():
+        print("Using cache!", userinput)
+        return ARTIST_URI_DICT[userinput]
+    else:
+        print("Cache miss!", userinput)
+        ARTIST_URI_DICT[userinput] = get_artist_uri(userinput)
+        save_cache(ARTIST_URI_DICT, ARTIST_URI_CACHE)
+        return ARTIST_URI_DICT[userinput]
 
 def make_artist_request_with_cache(userinput):
     ''' makes artist spotipy request with cache
@@ -287,7 +363,7 @@ def make_artist_request_with_cache(userinput):
     else:
         print("Cache miss!", userinput)
         CACHE_DICT[userinput] = get_album_uris_spotify(userinput)
-        save_cache(CACHE_DICT)
+        save_cache(CACHE_DICT, CACHE_FILE)
         return CACHE_DICT[userinput]
 
 def make_album_request_with_cache(album_uri):
@@ -308,7 +384,7 @@ def make_album_request_with_cache(album_uri):
     else:
         print("Cache miss!", album_uri)
         CACHE_DICT[album_uri] = get_album_songs(album_uri)
-        save_cache(CACHE_DICT)
+        save_cache(CACHE_DICT, CACHE_FILE)
         return CACHE_DICT[album_uri]
 
 def make_pitchfork_request_with_cache():
@@ -329,17 +405,18 @@ def make_pitchfork_request_with_cache():
     else:
         print("Cache miss!")
         CACHE_DICT[ALBUM_URL] = get_pitchfork_data()
-        save_cache(CACHE_DICT)
+        save_cache(CACHE_DICT, CACHE_FILE)
         return CACHE_DICT[ALBUM_URL]
 
 #######################################
 ## Setting up SQL Database Structure ##
 #######################################
 
+#set up connection
 conn = sqlite3.connect('spotify_db.sqlite')
-
 cur = conn.cursor()
 
+#set up albums table
 drop_albums = '''
     DROP TABLE IF EXISTS "Albums";
 '''
@@ -358,6 +435,7 @@ create_albums = '''
 cur.execute(drop_albums)
 cur.execute(create_albums)
 
+#set up songs table
 drop_songs = '''
     DROP TABLE IF EXISTS "Songs";
 '''
@@ -376,18 +454,20 @@ cur.execute(create_songs)
 
 if __name__ == "__main__":
 
-    #test code
-    # get_artist_recommendations("justin bieber")
-    pitchfork_data = make_pitchfork_request_with_cache()
+    pitchfork_data = make_pitchfork_request_with_cache() #get initial pitchfork data
     userinput = input('Enter the name of one of your favorite artists (e.g. Justin Bieber) to explore, or enter exit:').lower()
+
     while True:
 
         if userinput == "exit": #if they want to exit, let them exit
             break
+
         else: #otherwise, let's search for the artist they typed in
             albums_to_print = make_artist_request_with_cache(userinput) #get the albums to search for
+
             if albums_to_print == None: #if there are no albums, print message
                 print("sorry! We cannot find any albums for that artist")
+
             else: #print out the albums for that artist
                 print(f"Here are the albums we found for {userinput}:")
                 print_album_list(albums_to_print)#print out the list of albums nicely
@@ -396,30 +476,42 @@ if __name__ == "__main__":
                 search_artist_in_pitchfork(userinput, pitchfork_data)
                 print("------------------------------------------------- \n")
                 #now, ask them if they want to see this pitchfork list
-                newinput = input("Would you like to see the full pitchfork list? Enter yes or no").lower()
+                newinput = input("Would you like to see the full pitchfork list? Enter yes or no: ").lower()
+
                 if newinput == "yes":
                     webbrowser.open('https://pitchfork.com/features/lists-and-guides/the-200-best-albums-of-the-2010s/')
                 print("------------------------------------------------- \n")
+                newinput = input("Would you like to see related artists and their popularity? Enter yes or no: ").lower()
+
+                if newinput == "yes":
+                    get_artist_recommendations(userinput)
+                print("------------------------------------------------- \n")
+
                 while True: #new loop to explore an album
                     #ask them if they want to explore one of the listed albums
-                    userinput = input("Enter a number if you'd like to explore an album's songs. Or type 'exit', or 'back' to do another search:").lower()
+                    userinput = input("Enter a number if you'd like to explore one of the above album's songs. Or type 'exit', or 'back' to do another search:").lower()
+
                     if userinput == "exit":#exit the program
                         break
+
                     elif userinput == "back": #go back to the initial artist search
                         userinput = input('Enter the name of one of your favorite artists (e.g. Justin Bieber) or enter exit:').lower()
                         break
+
                     elif userinput.isnumeric() and float(userinput) >0 and float(userinput).is_integer()\
                      and int(float(userinput)) in range(len(albums_to_print)+1): #check for valid input
                             album_names = []
+
                             #get the names of the albums
                             for album in albums_to_print.keys():
                                 album_names.append(album)
                             #now, based off the user input, get the album they want to explore
                             album_in_question = album_names[int(float(userinput))-1]
                             #get all the songs of that specific album they requested
-                            album_songs = get_album_songs(albums_to_print[album_in_question])
+                            album_songs = make_album_request_with_cache(albums_to_print[album_in_question])
                             #print out the album songs, and open a plotly graph
                             explore_album_songs(album_songs)
+
                     else:#not a valid input
                         print("Invalid input\n")
                         print("------------------------------------")
